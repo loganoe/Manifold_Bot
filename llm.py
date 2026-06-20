@@ -16,10 +16,14 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 PRIMARY_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 FALLBACK_MODEL = "poolside/laguna-m.1:free"
+COMPACTION_MODEL = "google/gemma-4-31b-it:free"
 MAX_TIMEOUTS_BEFORE_FALLBACK = 3
 TIMEOUT_SECONDS = 120
 MAX_CONTEXT_TOKENS = 100_000
 RECENT_MESSAGES_TO_KEEP = 15
+
+# Reasoning configuration (model-specific: Nemotron 3 Ultra supports reasoning)
+REASONING_EFFORT = "high"  # "low", "medium", or "high"
 
 # Tokenizer for counting
 tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -97,6 +101,13 @@ class LLMClient:
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+            # Enable reasoning only for tool-calling calls (main trading loop).
+            # Compaction and ping calls don't use tools, so reasoning is skipped.
+            payload["reasoning"] = {
+                "enabled": True,
+                "effort": REASONING_EFFORT,
+                "exclude": False,
+            }
 
         try:
             resp = self.session.post(
@@ -124,6 +135,17 @@ class LLMClient:
             logger.error(f"API call to {model} failed: {e}")
             return None
 
+    def extract_reasoning(self, response: dict) -> str:
+        """Extract reasoning/chain-of-thought trace from an API response.
+
+        Returns the reasoning text, or empty string if none.
+        """
+        choices = response.get("choices", [])
+        if not choices:
+            return ""
+        message = choices[0].get("message", {})
+        return message.get("reasoning", "") or ""
+
     def chat(
         self,
         messages: list[dict],
@@ -149,6 +171,18 @@ class LLMClient:
 
         if response is not None:
             self.consecutive_timeouts = 0
+
+            # Log reasoning trace if present
+            reasoning = self.extract_reasoning(response)
+            if reasoning:
+                reasoning_tokens = count_tokens(reasoning)
+                logger.info(
+                    f"REASONING TRACE ({reasoning_tokens} tokens):\n"
+                    f"{'-' * 40}\n"
+                    f"{reasoning}\n"
+                    f"{'-' * 40}"
+                )
+
             # Check if we should try switching back to primary
             if model == FALLBACK_MODEL:
                 logger.info(
@@ -312,10 +346,12 @@ Conversation history to summarize:
 
 Produce a concise summary (under 1000 words)."""
 
-        # Use the LLM to summarize (use minimal call)
-        logger.info("Calling LLM for context compaction...")
+        # Use a separate model for compaction (faster, no reasoning needed)
+        logger.info(
+            f"Calling {COMPACTION_MODEL} for context compaction..."
+        )
         summary_response = self._call_api(
-            self.current_model,
+            COMPACTION_MODEL,
             [{"role": "user", "content": summary_prompt}],
             tools=None,
         )

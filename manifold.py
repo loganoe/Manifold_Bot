@@ -74,6 +74,7 @@ class ManifoldClient:
         amount: float,
         outcome: str,
         limit_prob: Optional[float] = None,
+        answer_id: Optional[str] = None,
     ) -> dict:
         """Place a bet on a market.
 
@@ -82,6 +83,7 @@ class ManifoldClient:
             amount: Amount of Mana to bet.
             outcome: "YES" or "NO".
             limit_prob: Optional limit probability (0-1) for a limit order.
+            answer_id: Required for MULTIPLE_CHOICE markets — the answer ID to bet on.
         """
         data = {
             "contractId": contract_id,
@@ -90,19 +92,24 @@ class ManifoldClient:
         }
         if limit_prob is not None:
             data["limitProb"] = limit_prob
+        if answer_id is not None:
+            data["answerId"] = answer_id
         return self._post("/bet", data)
 
-    def sell_position(self, contract_id: str, outcome: str, shares: Optional[float] = None) -> dict:
+    def sell_position(self, contract_id: str, outcome: str, shares: Optional[float] = None, answer_id: Optional[str] = None) -> dict:
         """Sell all or some shares in a market.
 
         Args:
             contract_id: The market/contract ID.
             outcome: Which outcome to sell ("YES" or "NO"). Required by the API.
             shares: Optional number of shares to sell. If None, sells all.
+            answer_id: Required for MULTIPLE_CHOICE markets — the answer ID to sell.
         """
         data: dict = {"outcome": outcome}
         if shares is not None:
             data["shares"] = shares
+        if answer_id is not None:
+            data["answerId"] = answer_id
         return self._post(f"/market/{contract_id}/sell", data)
 
     def get_me(self) -> dict:
@@ -135,8 +142,11 @@ class ManifoldClient:
         if isinstance(bets, list):
             for bet in bets:
                 contract_id = bet.get("contractId", "")
-                if contract_id not in positions:
-                    positions[contract_id] = {
+                answer_id = bet.get("answerId", "")
+                # For multi-choice markets, use contractId+answerId as key
+                pos_key = f"{contract_id}:{answer_id}" if answer_id else contract_id
+                if pos_key not in positions:
+                    positions[pos_key] = {
                         "contractId": contract_id,
                         "question": bet.get("contractQuestion", bet.get("question", "Unknown")),
                         "slug": bet.get("contractSlug", ""),
@@ -144,6 +154,9 @@ class ManifoldClient:
                         "shares": 0,
                         "total_invested": 0,
                     }
+                    if answer_id:
+                        positions[pos_key]["answerId"] = answer_id
+                        positions[pos_key]["answerText"] = bet.get("answerText", bet.get("answer", "")) or ""
                 # Accumulate shares
                 shares = bet.get("shares", 0)
                 amount = bet.get("amount", 0)
@@ -153,8 +166,8 @@ class ManifoldClient:
                     # Ante bets shouldn't count
                     continue
                 if shares > 0:
-                    positions[contract_id]["shares"] += shares
-                    positions[contract_id]["total_invested"] += amount
+                    positions[pos_key]["shares"] += shares
+                    positions[pos_key]["total_invested"] += amount
 
         # Only include positions with non-zero shares
         active_positions = [

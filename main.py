@@ -113,11 +113,18 @@ The current date and time is: {current_date}
 
 ## Market Mechanics
 
+### Binary Markets
 - Manifold markets are binary: YES or NO. 
 - YES shares pay M$1 if the event occurs, M$0 if not.
 - NO shares pay M$1 if the event does NOT occur.
 - Current probability = current price of YES shares.
 - You can place market orders (immediate) or limit orders (specify worst acceptable probability).
+
+### Multiple-Choice Markets
+- Some markets have multiple options (e.g., "Who will win the tournament?"). Each option is an "answer" with its own probability.
+- To bet on a multiple-choice market: call place_bet with contract_id (the market ID), answer_id (the specific answer's ID from the answers array), and outcome="YES".
+- To sell a multiple-choice position: call sell_position with contract_id (the market ID), answer_id, and outcome="YES".
+- Always call get_market first to see the answers array and their IDs before betting on a multiple-choice market.
 - You can sell your positions at any time.
 
 ## Your Tools

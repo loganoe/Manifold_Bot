@@ -249,6 +249,7 @@ def execute_tool(
             amount = float(tool_args.get("amount", 0))
             outcome = tool_args.get("outcome", "YES").upper()
             limit_prob = tool_args.get("limit_prob")
+            answer_id = tool_args.get("answer_id")
 
             # Try to get market question for the trade log
             question = ""
@@ -256,6 +257,12 @@ def execute_tool(
                 market = manifold.get_market(contract_id)
                 if "error" not in market:
                     question = market.get("question", "")
+                    # For multi-choice, include the answer text too
+                    if answer_id:
+                        for ans in market.get("answers", []):
+                            if ans.get("id") == answer_id:
+                                question = f"{question} [{ans.get('text', 'Unknown')}]"
+                                break
             except Exception:
                 pass
 
@@ -264,6 +271,7 @@ def execute_tool(
                 amount=amount,
                 outcome=outcome,
                 limit_prob=limit_prob,
+                answer_id=answer_id,
             )
 
             # Log trade
@@ -286,13 +294,19 @@ def execute_tool(
             contract_id = tool_args.get("contract_id", "")
             shares = tool_args.get("shares")
             outcome = tool_args.get("outcome", "").upper()
+            answer_id = tool_args.get("answer_id")
 
             # If outcome not provided, look it up from positions
             if not outcome or outcome not in ("YES", "NO"):
                 positions_data = manifold.get_positions_summary()
                 for pos in positions_data.get("positions", []):
                     if pos.get("contractId") == contract_id:
+                        # For multi-choice, also match on answerId when available
+                        if answer_id and pos.get("answerId") and pos.get("answerId") != answer_id:
+                            continue
                         outcome = pos.get("outcome", "")
+                        if not answer_id:
+                            answer_id = pos.get("answerId")
                         break
             # If we still can't determine, fail rather than guess wrong
             if outcome not in ("YES", "NO"):
@@ -308,10 +322,20 @@ def execute_tool(
                 market = manifold.get_market(contract_id)
                 if "error" not in market:
                     question = market.get("question", "")
+                    if answer_id:
+                        for ans in market.get("answers", []):
+                            if ans.get("id") == answer_id:
+                                question = f"{question} [{ans.get('text', 'Unknown')}]"
+                                break
             except Exception:
                 pass
 
-            result = manifold.sell_position(contract_id=contract_id, outcome=outcome, shares=shares)
+            result = manifold.sell_position(
+                contract_id=contract_id,
+                outcome=outcome,
+                shares=shares,
+                answer_id=answer_id,
+            )
 
             # Log trade
             api_ok = "error" not in result
@@ -446,13 +470,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "place_bet",
-            "description": "Place a bet on a Manifold market. You can bet YES or NO. You can also set a limit probability for limit orders.",
+            "description": "Place a bet on a Manifold market. For BINARY markets: use contract_id + outcome (YES/NO). For MULTIPLE_CHOICE markets: use contract_id (market ID) + answer_id (the specific answer's ID) + outcome='YES'.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "contract_id": {
                         "type": "string",
-                        "description": "The market/contract ID to bet on.",
+                        "description": "The market ID to bet on. For multi-choice markets, this is the parent market ID (NOT the answer ID).",
                     },
                     "amount": {
                         "type": "number",
@@ -461,8 +485,12 @@ TOOL_DEFINITIONS = [
                     },
                     "outcome": {
                         "type": "string",
-                        "description": "Which side to bet on: 'YES' or 'NO'.",
+                        "description": "Which side to bet on: 'YES' or 'NO'. For multi-choice markets, always use 'YES'.",
                         "enum": ["YES", "NO"],
+                    },
+                    "answer_id": {
+                        "type": "string",
+                        "description": "Required for MULTIPLE_CHOICE markets: the ID of the specific answer/option to bet on. Find this in the 'answers' array from get_market.",
                     },
                     "limit_prob": {
                         "type": "number",
@@ -479,18 +507,22 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "sell_position",
-            "description": "Sell your position (shares) in a Manifold market. If shares is not specified, sells all shares.",
+            "description": "Sell your position (shares) in a Manifold market. If shares is not specified, sells all shares. For multi-choice markets, provide answer_id.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "contract_id": {
                         "type": "string",
-                        "description": "The market/contract ID to sell your position in.",
+                        "description": "The market ID to sell your position in. For multi-choice markets, this is the parent market ID.",
                     },
                     "outcome": {
                         "type": "string",
                         "description": "Which outcome to sell: 'YES' or 'NO'. If not provided, the bot will look it up from your positions.",
                         "enum": ["YES", "NO"],
+                    },
+                    "answer_id": {
+                        "type": "string",
+                        "description": "Required for MULTIPLE_CHOICE markets: the ID of the specific answer to sell. Find this in the 'answers' array from get_market.",
                     },
                     "shares": {
                         "type": "number",

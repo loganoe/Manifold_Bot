@@ -285,6 +285,22 @@ def execute_tool(
         elif tool_name == "sell_position":
             contract_id = tool_args.get("contract_id", "")
             shares = tool_args.get("shares")
+            outcome = tool_args.get("outcome", "").upper()
+
+            # If outcome not provided, look it up from positions
+            if not outcome or outcome not in ("YES", "NO"):
+                positions_data = manifold.get_positions_summary()
+                for pos in positions_data.get("positions", []):
+                    if pos.get("contractId") == contract_id:
+                        outcome = pos.get("outcome", "")
+                        break
+            # If we still can't determine, fail rather than guess wrong
+            if outcome not in ("YES", "NO"):
+                return json.dumps({
+                    "error": f"Could not determine outcome for contract {contract_id}. "
+                             f"Please specify 'outcome': 'YES' or 'NO' in the sell_position call.",
+                    "hint": "Check your positions first with get_positions to find the correct outcome."
+                })
 
             # Try to get market question for the trade log
             question = ""
@@ -295,7 +311,7 @@ def execute_tool(
             except Exception:
                 pass
 
-            result = manifold.sell_position(contract_id=contract_id, shares=shares)
+            result = manifold.sell_position(contract_id=contract_id, outcome=outcome, shares=shares)
 
             # Log trade
             api_ok = "error" not in result
@@ -303,7 +319,7 @@ def execute_tool(
                 action="SELL",
                 contract_id=contract_id,
                 question=question,
-                outcome="",
+                outcome=outcome,
                 amount=0,
                 limit_prob=None,
                 shares=shares if shares is not None else result.get("shares"),
@@ -470,6 +486,11 @@ TOOL_DEFINITIONS = [
                     "contract_id": {
                         "type": "string",
                         "description": "The market/contract ID to sell your position in.",
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "description": "Which outcome to sell: 'YES' or 'NO'. If not provided, the bot will look it up from your positions.",
+                        "enum": ["YES", "NO"],
                     },
                     "shares": {
                         "type": "number",

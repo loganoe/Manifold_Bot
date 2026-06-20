@@ -92,17 +92,18 @@ class ManifoldClient:
             data["limitProb"] = limit_prob
         return self._post("/bet", data)
 
-    def sell_position(self, contract_id: str, shares: Optional[float] = None) -> dict:
+    def sell_position(self, contract_id: str, outcome: str, shares: Optional[float] = None) -> dict:
         """Sell all or some shares in a market.
 
         Args:
             contract_id: The market/contract ID.
+            outcome: Which outcome to sell ("YES" or "NO"). Required by the API.
             shares: Optional number of shares to sell. If None, sells all.
         """
-        data = {"contractId": contract_id}
+        data: dict = {"outcome": outcome}
         if shares is not None:
             data["shares"] = shares
-        return self._post("/sell", data)
+        return self._post(f"/market/{contract_id}/sell", data)
 
     def get_me(self) -> dict:
         """Get current user info including balance."""
